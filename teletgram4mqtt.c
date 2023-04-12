@@ -3,6 +3,11 @@
     For run code:
      gcc teletgram4mqtt.c -o bot_mqtt -lcurl -ljansson -lmosquitto
      ./bot_mqtt
+
+ *      ToDo:
+ *              Use webhook may be better way
+ *              Realise Send files/photos
+
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,7 +92,10 @@ int TelegramReq(char *req, char *msg) {
         res = curl_easy_perform(curl);
         if(res != CURLE_OK) {
             fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-        } else printf("%s\r\n", resp.data);
+        }
+        #ifdef DEBUG
+        else printf("%s\r\n", resp.data);
+        #endif
         curl_easy_cleanup(curl);
         if (list != NULL) curl_slist_free_all(list);
     }
@@ -136,27 +144,34 @@ int MessageAction(msg_t *mm) {
             if (to_send != NULL) {
                 TelegramReq("sendMessage", json_dumps(to_send, JSON_COMPACT));
                 printf("menu called\n %s\n", json_dumps(to_send, JSON_COMPACT));
-                //TelegramReq("sendMessage?text=Mennu&chat_id=994440495&reply_markup={\"keyboard\":[[\"Menu1\",\"Menu2\"]],\"resize_keyboard\":true}", NULL);
                 json_decref(to_send);
             }
-        }
-        if (strcmp(mm->text, "/info") == 0) {
-             printf("menu 2 called\n");
-             mosquitto_publish(mosq, NULL, "info/refresh", 1, "0", 0, false);
-             mq_rcv.collect_timer = 2;
-             mq_rcv.flag = 1;
-             mq_rcv.chat_id = mm->chat_id;
-        }
-        if (strcmp(mm->text, "/gate") == 0) {
-             printf("gate called\n");
-             mosquitto_publish(mosq, NULL, "main/gate", 1, "1", 0, false);
         }
         if (strcmp(mm->text, "/close") == 0) {
             char s[128];
             snprintf(s, 128, "sendMessage?text=Menu_closed&chat_id=%ld&reply_markup={\"remove_keyboard\":true}", mm->chat_id);
             TelegramReq(s, NULL);
         }
-
+        if (strcmp(mm->text, "/info") == 0) {
+            printf("info called\n");
+            mosquitto_publish(mosq, NULL, "info/refresh", 1, "0", 0, false);
+            mq_rcv.collect_timer = 2;
+            mq_rcv.flag = 1;
+            mq_rcv.chat_id = mm->chat_id;
+        }
+        if (strcmp(mm->text, "/gate") == 0) {
+            printf("gate called\n");
+            mosquitto_publish(mosq, NULL, "main/gate", 1, "1", 0, false);
+        }
+        if (strncmp(mm->text, "/topic", 6) == 0) {
+            char *topic, *value;
+            int i = 0;
+            while(mm->text[i] != ' ' && (uint8_t)mm->text[i] != 0xA0) i++; // /topic sometimes ended by 0xC2,0xA0 not 0x20 (space)
+            topic = strtok(mm->text + i + 1, " ");
+            value = strtok(0, " ");
+            printf("MQTT publish: t=%s v=%s\n", topic, value);
+            if (topic != NULL && value != NULL) mosquitto_publish(mosq, NULL, topic, strlen(value), value, 0, false);
+        }
     } else {
         // you not allowed answer
     }
